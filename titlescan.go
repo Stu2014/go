@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"crypto/tls"
 	"encoding/csv"
 	"flag"
 	"fmt"
@@ -27,10 +28,20 @@ func scnafile(file string, url chan string)  {
 		fmt.Println("open error")
 	}
 	defer files.Close()
+	//n := bufio.NewReader(files)
+	//for {
+	//	a, _, c := n.ReadLine()
+	//	if c == io.EOF {
+	//		break
+	//	}
+	//	fmt.Println(string(a),"aaa")
+	//	url <- string(a)
+	//}
 	n := bufio.NewScanner(files)
 	for n.Scan(){
-		//fmt.Println(n.Text())
+		fmt.Println(n.Text())
 		url <- n.Text()
+		continue
 	}
 	err_ := n.Err()
 	if err_ != nil {
@@ -49,7 +60,10 @@ func reurl(url chan string)  {
 				wg.Done()
 				return
 			}
-		client := &http.Client{}
+		tr := &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify:true},
+		}
+		client := &http.Client{Transport:tr}
 		url := xdd
 		req, err := http.NewRequest("GET", url, nil)
 		if err != nil {
@@ -58,7 +72,7 @@ func reurl(url chan string)  {
 		}
 		resp, err := client.Do(req)
 		if err != nil {
-			//fmt.Printf("url: %s error\n", url)
+			fmt.Printf("url: %s error\n", url)
 			continue
 		}
 		defer resp.Body.Close()
@@ -71,8 +85,11 @@ func reurl(url chan string)  {
 			fmt.Printf("[%d+] %s %s %s \n",resp.StatusCode, substr[1], xdd, resp.Header.Get("Server"))
 			writeurl(timeUnix, strconv.Itoa(resp.StatusCode), xdd, substr[1], resp.Header.Get("Server"))
 		}
-		wg.Done()
-		return
+		case <- time.After(time.Duration(2) * time.Second):
+			wg.Done()
+			return
+
+
 		}
 	}
 }
@@ -80,14 +97,13 @@ func reurl(url chan string)  {
 //写文件
 func writeurl(time_ string, code string, url string, title string, serverver string)  {
 	file , err := os.OpenFile(time_, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-	file.WriteString("\xEF\xBB\xBF")
+	_, _ = file.WriteString("\xEF\xBB\xBF")
 	if err != nil {
 		fmt.Println("open file err:", err)
-		return
 	}
 	defer file.Close()
 	w := csv.NewWriter(file)
-	w.Write([]string{url, title, code, serverver })
+	_ = w.Write([]string{url, title, code, serverver})
 	w.Flush()
 }
 
@@ -95,7 +111,7 @@ func main() {
 	url :=make(chan string)
 	var filename string
 
-	flag.StringVar(&filename, "f", "1.txt", "请输入url文件名字")
+	flag.StringVar(&filename, "f", "", "请输入url文件名字")
 	flag.Parse()
 	if filename == ""{
 		fmt.Println(`
@@ -110,7 +126,7 @@ func main() {
 	}
 
 	go scnafile(filename, url)
-	for i := 0; i < 30; i++{
+	for i := 0; i < 10; i++ {
 		wg.Add(1)
 		go reurl(url)
 	}
